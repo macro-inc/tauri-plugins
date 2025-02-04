@@ -29,6 +29,7 @@ class NotificationsPlugin(private val activity: Activity): Plugin(activity) {
     fun initFirebase(invoke: Invoke){
         Log.i("notifyPlugin", "initializing firebase")
         FirebaseApp.initializeApp(this.activity)
+        invoke.resolve()
     }
 
     @Command
