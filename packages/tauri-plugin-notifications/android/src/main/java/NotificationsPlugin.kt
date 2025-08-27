@@ -33,6 +33,13 @@ class NotificationsPlugin(private val activity: Activity): Plugin(activity) {
     }
 
     @Command
+    override fun checkPermissions(invoke: Invoke) {
+        val ret = JSObject()
+        ret.put("status", getPermissionState("postNotification"))
+        invoke.resolve(ret)
+    }
+
+    @Command
     override fun requestPermissions(invoke: Invoke){
         this.requestPermissionForAlias("postNotification",invoke,"notifyPermissionRequestDone");
     }
