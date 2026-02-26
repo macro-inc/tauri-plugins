@@ -357,9 +357,13 @@ class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
     // Helper method to emit events
     private func emitNotificationEvent(_ event: NotificationEvent) {
         if notificationChannels.isEmpty {
-            // No JS listener yet — buffer the event so watchNotifications can replay it.
-            Logger.debug("NotificationsPlugin: no channels registered, buffering event type=\(event.type.rawValue)")
-            pendingLaunchEvent = event
+            // Only buffer tap events for the cold-start case (user tapped a notification
+            // to launch the app before the JS listener registered). Delivery events
+            // that arrive during startup are dropped — there is no listener to receive them.
+            if event.type == .backgroundTap || event.type == .foregroundTap {
+                Logger.debug("NotificationsPlugin: no channels registered, buffering cold-start tap event type=\(event.type.rawValue)")
+                pendingLaunchEvent = event
+            }
         } else {
             notificationChannels.forEach { channel in
                 try? channel.send(event)
