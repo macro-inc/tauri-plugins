@@ -62,6 +62,10 @@ class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
     private var registrationInvoke: Invoke?
     private var notificationChannels: [Channel] = []
     private var originalDelegate: UIApplicationDelegate?
+    /// Holds the first notification event that arrives before any JS channel has
+    /// registered via watchNotifications (i.e. a cold-start tap).
+    /// Drained and cleared the first time a channel registers.
+    private var pendingLaunchEvent: NotificationEvent?
     
     override init() {
         super.init()
@@ -341,13 +345,29 @@ class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
     @objc public func watchNotifications(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(WatchNotificationsArgs.self)
         notificationChannels.append(args.channel)
+        // Drain any event that arrived before JS registered (cold-start tap).
+        if let pending = pendingLaunchEvent {
+            Logger.debug("NotificationsPlugin: replaying pending launch event to new channel")
+            pendingLaunchEvent = nil
+            try? args.channel.send(pending)
+        }
         invoke.resolve(WatchNotificationResult(success: true))
     }
-    
+
     // Helper method to emit events
     private func emitNotificationEvent(_ event: NotificationEvent) {
-        notificationChannels.forEach { channel in
-            try? channel.send(event)
+        if notificationChannels.isEmpty {
+            // Only buffer tap events for the cold-start case (user tapped a notification
+            // to launch the app before the JS listener registered). Delivery events
+            // that arrive during startup are dropped — there is no listener to receive them.
+            if event.type == .backgroundTap || event.type == .foregroundTap {
+                Logger.debug("NotificationsPlugin: no channels registered, buffering cold-start tap event type=\(event.type.rawValue)")
+                pendingLaunchEvent = event
+            }
+        } else {
+            notificationChannels.forEach { channel in
+                try? channel.send(event)
+            }
         }
     }
 }
