@@ -6,6 +6,7 @@ import AuthenticationServices
 struct AuthenticateArgs: Decodable {
     let authUrl: String
     let callbackScheme: String
+    let ephemeralSession: Bool?
 }
 
 struct AuthResult: Encodable {
@@ -67,7 +68,7 @@ class AuthPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
             }
             
             session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
+            session.prefersEphemeralWebBrowserSession = args.ephemeralSession ?? false
             
             if !session.start() {
                 print("Failed to start ASWebAuthenticationSession")

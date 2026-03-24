@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct AuthenticateArgs {
   pub auth_url: String,
   pub callback_scheme: String,
+  pub ephemeral_session: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
