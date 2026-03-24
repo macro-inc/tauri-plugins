@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 export type AuthenticateArgs = {
   authUrl: string;
   callbackScheme: string;
+  ephemeralSession?: boolean;
 }
 
 export type AuthResult = {
