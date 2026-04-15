@@ -62,6 +62,7 @@ class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
     private var registrationInvoke: Invoke?
     private var notificationChannels: [Channel] = []
     private var originalDelegate: UIApplicationDelegate?
+    private var pendingColdStartEvent: NotificationEvent?
     
     override init() {
         super.init()
@@ -341,13 +342,22 @@ class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
     @objc public func watchNotifications(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(WatchNotificationsArgs.self)
         notificationChannels.append(args.channel)
+        // Drain buffered cold-start event
+        if let pending = pendingColdStartEvent {
+            try? args.channel.send(pending)
+            pendingColdStartEvent = nil
+        }
         invoke.resolve(WatchNotificationResult(success: true))
     }
-    
+
     // Helper method to emit events
     private func emitNotificationEvent(_ event: NotificationEvent) {
-        notificationChannels.forEach { channel in
-            try? channel.send(event)
+        if notificationChannels.isEmpty {
+            pendingColdStartEvent = event
+        } else {
+            notificationChannels.forEach { channel in
+                try? channel.send(event)
+            }
         }
     }
 }
