@@ -344,8 +344,18 @@ class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
         notificationChannels.append(args.channel)
         // Drain buffered cold-start event
         if let pending = pendingColdStartEvent {
-            try? args.channel.send(pending)
             pendingColdStartEvent = nil
+            let channel = args.channel
+            // channel.send calls sendChannelData which evaluates JS in WKWebView —
+            // that must happen on the main thread; ipcDispatchQueue is a background
+            // thread, so dispatch explicitly.
+            DispatchQueue.main.async {
+                do {
+                    try channel.send(pending)
+                } catch {
+                    Logger.error("NotificationsPlugin: cold-start channel.send failed: \(error)")
+                }
+            }
         }
         invoke.resolve(WatchNotificationResult(success: true))
     }
