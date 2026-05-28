@@ -60,9 +60,9 @@ struct WatchNotificationResult: Encodable {
 
 class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
     private var registrationInvoke: Invoke?
-    private var notificationChannels: [Channel] = []
+    private var notificationChannel: Channel?
     private var originalDelegate: UIApplicationDelegate?
-    private var pendingColdStartEvent: NotificationEvent?
+    private var pendingNotificationEvents: [NotificationEvent] = []
     
     override init() {
         super.init()
@@ -341,33 +341,48 @@ class NotificationsPlugin: Plugin, UNUserNotificationCenterDelegate {
     // Add method to watch for notifications
     @objc public func watchNotifications(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(WatchNotificationsArgs.self)
-        notificationChannels.append(args.channel)
-        // Drain buffered cold-start event
-        if let pending = pendingColdStartEvent {
-            pendingColdStartEvent = nil
-            let channel = args.channel
-            // channel.send calls sendChannelData which evaluates JS in WKWebView —
-            // that must happen on the main thread; ipcDispatchQueue is a background
-            // thread, so dispatch explicitly.
-            DispatchQueue.main.async {
-                do {
-                    try channel.send(pending)
-                } catch {
-                    Logger.error("NotificationsPlugin: cold-start channel.send failed: \(error)")
-                }
-            }
+
+        // A new webview registers a new channel after reload. Replace the old
+        // channel instead of broadcasting to stale watchers.
+        DispatchQueue.main.async {
+            self.notificationChannel = args.channel
+            self.flushPendingNotificationEvents()
+            invoke.resolve(WatchNotificationResult(success: true))
         }
-        invoke.resolve(WatchNotificationResult(success: true))
     }
 
     // Helper method to emit events
     private func emitNotificationEvent(_ event: NotificationEvent) {
-        if notificationChannels.isEmpty {
-            pendingColdStartEvent = event  // buffer for replay on cold start
-        } else {
-            notificationChannels.forEach { channel in
-                try? channel.send(event)
+        // Channel.send evaluates JavaScript in the WKWebView and must run on
+        // the main thread. Keep channel and pending-event state there too.
+        DispatchQueue.main.async {
+            if !self.sendNotificationEvent(event) {
+                self.pendingNotificationEvents.append(event)
             }
+        }
+    }
+
+    private func flushPendingNotificationEvents() {
+        while !pendingNotificationEvents.isEmpty {
+            let event = pendingNotificationEvents.removeFirst()
+            if !sendNotificationEvent(event) {
+                pendingNotificationEvents.insert(event, at: 0)
+                return
+            }
+        }
+    }
+
+    private func sendNotificationEvent(_ event: NotificationEvent) -> Bool {
+        guard let channel = notificationChannel else {
+            return false
+        }
+        do {
+            try channel.send(event)
+            return true
+        } catch {
+            Logger.error("NotificationsPlugin: notification channel send failed: \(error)")
+            notificationChannel = nil
+            return false
         }
     }
 }
