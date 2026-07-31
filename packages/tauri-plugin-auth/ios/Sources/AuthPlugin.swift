@@ -16,19 +16,30 @@ struct AuthResult: Encodable {
 }
 
 class AuthPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
+    /// ASWebAuthenticationSession must be strongly retained for its whole
+    /// lifetime: if it is deallocated while the sheet is up, the completion
+    /// handler never fires and the caller waits forever, even though the
+    /// user finished authenticating.
+    private var activeSession: ASWebAuthenticationSession?
+
     @objc public func authenticate(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(AuthenticateArgs.self)
-        
+
         print("Auth URL: \(args.authUrl)")
         print("Callback Scheme: \(args.callbackScheme)")
-        
+
         guard let authUrl = URL(string: args.authUrl) else {
             invoke.reject("Invalid authentication URL")
             return
         }
-        
+
         DispatchQueue.main.async {
-            let session = ASWebAuthenticationSession(url: authUrl, callbackURLScheme: args.callbackScheme) { callbackURL, error in
+            // A second authenticate call while a sheet is up would strand the
+            // first session; cancel it so its completion resolves as canceled.
+            self.activeSession?.cancel()
+
+            let session = ASWebAuthenticationSession(url: authUrl, callbackURLScheme: args.callbackScheme) { [weak self] callbackURL, error in
+                self?.activeSession = nil
                 if let error = error as? ASWebAuthenticationSessionError {
                     switch error.code {
                     case .canceledLogin:
@@ -69,9 +80,11 @@ class AuthPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
             
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = args.ephemeralSession ?? false
-            
+            self.activeSession = session
+
             if !session.start() {
                 print("Failed to start ASWebAuthenticationSession")
+                self.activeSession = nil
                 invoke.reject("Failed to start authentication session")
             }
         }
