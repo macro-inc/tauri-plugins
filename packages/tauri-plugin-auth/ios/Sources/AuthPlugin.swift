@@ -21,6 +21,11 @@ class AuthPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
     /// handler never fires and the caller waits forever, even though the
     /// user finished authenticating.
     private var activeSession: ASWebAuthenticationSession?
+    /// Incremented for every new session. Canceling a prior session delivers
+    /// its completion asynchronously, after `activeSession` already points at
+    /// the replacement; the guard below keeps that stale completion from
+    /// releasing the new session.
+    private var sessionGeneration = 0
 
     @objc public func authenticate(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(AuthenticateArgs.self)
@@ -37,9 +42,13 @@ class AuthPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
             // A second authenticate call while a sheet is up would strand the
             // first session; cancel it so its completion resolves as canceled.
             self.activeSession?.cancel()
+            self.sessionGeneration += 1
+            let generation = self.sessionGeneration
 
             let session = ASWebAuthenticationSession(url: authUrl, callbackURLScheme: args.callbackScheme) { [weak self] callbackURL, error in
-                self?.activeSession = nil
+                if self?.sessionGeneration == generation {
+                    self?.activeSession = nil
+                }
                 if let error = error as? ASWebAuthenticationSessionError {
                     switch error.code {
                     case .canceledLogin:
